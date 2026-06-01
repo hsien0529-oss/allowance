@@ -1,9 +1,10 @@
-const CACHE_NAME = "allowance-pool-v1";
+const CACHE_NAME = "allowance-pool-v2";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./firebase-config.js",
   "./manifest.webmanifest",
   "./icon.svg",
 ];

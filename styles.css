@@ -450,6 +450,26 @@ select:focus {
   background: var(--surface-2);
 }
 
+.sync-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--brand) 9%, var(--surface));
+}
+
+.sync-card p,
+.sync-card small {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.sync-card small {
+  color: var(--warn);
+}
+
 .child-row p {
   margin: 0;
   color: var(--muted);

@@ -1,16 +1,21 @@
-const STORAGE_KEY = "allowance-pool-v1";
+const STORAGE_KEY = "allowance-pool-v2";
+const CLOUD_FAMILY_ID = "main-family";
+const FIREBASE_VERSION = "10.12.5";
+
 const TYPE_LABELS = {
   expense: "花費",
   income: "收入",
   save: "存起來",
   adjust: "調整",
 };
+
 const TYPE_SIGNS = {
   expense: -1,
   income: 1,
   save: 1,
   adjust: 1,
 };
+
 const CATEGORIES = {
   expense: ["餐飲", "文具", "交通", "玩具", "娛樂", "其他"],
   income: ["零用金", "獎勵", "禮物", "退款", "其他"],
@@ -18,10 +23,12 @@ const CATEGORIES = {
   adjust: ["家長修正", "期初金額", "其他"],
 };
 
-let state = loadState();
+let state = loadLocalState();
 let session = null;
 let activeRole = "parent";
 let activeView = "Home";
+let cloud = { enabled: false, ready: false, error: "", save: null, unsubscribe: null };
+let applyingRemote = false;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -51,16 +58,16 @@ const els = {
 
 init();
 
-function init() {
+async function init() {
   document.documentElement.dataset.theme = localStorage.getItem("allowance-theme") || "light";
   bindEvents();
+  renderBootState();
+  await setupCloudSync();
   if (!state) {
-    state = null;
     showSetup();
-    render();
-    return;
+  } else {
+    showLogin();
   }
-  showLogin();
   render();
 }
 
@@ -98,6 +105,47 @@ function bindEvents() {
   }
 }
 
+async function setupCloudSync() {
+  const config = window.ALLOWANCE_FIREBASE_CONFIG;
+  if (!config || !config.apiKey || config.apiKey.includes("PASTE_")) {
+    cloud = { enabled: false, ready: true, error: "尚未填 Firebase 設定", save: null, unsubscribe: null };
+    return;
+  }
+
+  try {
+    const appModule = await import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app.js`);
+    const firestoreModule = await import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-firestore.js`);
+    const app = appModule.initializeApp(config);
+    const db = firestoreModule.getFirestore(app);
+    const docRef = firestoreModule.doc(db, "families", CLOUD_FAMILY_ID);
+
+    cloud.enabled = true;
+    cloud.ready = true;
+    cloud.error = "";
+    cloud.save = async (nextState) => {
+      await firestoreModule.setDoc(docRef, sanitizeForCloud(nextState), { merge: true });
+    };
+    cloud.unsubscribe = firestoreModule.onSnapshot(docRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        if (state) persist();
+        return;
+      }
+      applyingRemote = true;
+      state = normalizeState(snapshot.data());
+      saveLocalState(state);
+      applyingRemote = false;
+      if (!session && state) showLogin();
+      render();
+    }, (error) => {
+      cloud.error = error.message || "雲端同步失敗";
+      render();
+      toast("雲端同步暫時失敗，會保留本機資料。");
+    });
+  } catch (error) {
+    cloud = { enabled: false, ready: true, error: error.message || "Firebase 初始化失敗", save: null, unsubscribe: null };
+  }
+}
+
 function setupFamily(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
@@ -113,6 +161,7 @@ function setupFamily(event) {
     children: [{ id: childId, name: form.get("childName").trim(), pin: childPin, createdAt: nowIso() }],
     records: [],
     createdAt: nowIso(),
+    updatedAt: nowIso(),
   };
   if (initialBalance > 0) {
     state.records.push(makeRecord({
@@ -129,7 +178,7 @@ function setupFamily(event) {
   session = { role: "parent", childId };
   showApp();
   render();
-  toast("家庭零用金池建立好了。");
+  toast(cloud.enabled ? "家庭零用金池已建立，雲端同步中。" : "家庭零用金池建立好了。");
 }
 
 function login(event) {
@@ -185,7 +234,7 @@ function saveEntry(event) {
   event.currentTarget.reset();
   setDefaultEntryValues();
   render();
-  toast(isBackdate(form.get("date")) ? "補登完成，已放進正確日期。" : "今天的紀錄已儲存。");
+  toast(isBackdate(form.get("date")) ? "補登完成，已同步到正確日期。" : "今天的紀錄已儲存。");
 }
 
 function addChild(event) {
@@ -215,9 +264,14 @@ function addChild(event) {
   toast("孩子已加入零用金池。");
 }
 
+function renderBootState() {
+  els.summaryPanel.innerHTML = welcomeSummary("同步初始化中");
+  showSetup();
+}
+
 function render() {
   if (!state) {
-    els.summaryPanel.innerHTML = welcomeSummary();
+    els.summaryPanel.innerHTML = welcomeSummary(cloudLabel());
     return;
   }
   renderSelectors();
@@ -242,9 +296,9 @@ function renderSummary() {
     <div class="hero-card">
       <div class="hero-main">
         <div>
-          <p class="eyebrow">${session ? "目前帳戶" : "請先登入"}</p>
+          <p class="eyebrow">${cloudLabel()}</p>
           <div class="balance">${money(balance)}</div>
-          <span class="child-pill">${name || "家庭零用金池"}</span>
+          <span class="child-pill">${escapeHtml(name || "家庭零用金池")}</span>
         </div>
       </div>
       <div class="stat-strip">
@@ -259,7 +313,7 @@ function renderSummary() {
 function renderQuickActions() {
   const isParent = session?.role === "parent";
   const actions = [
-    ["＋", isParent ? "發零用金" : "記收入", isParent ? "給孩子補充金額" : "獎勵、禮物都能記", () => prepEntry(isParent ? "income" : "income")],
+    ["＋", isParent ? "發零用金" : "記收入", isParent ? "給孩子補充金額" : "獎勵、禮物都能記", () => prepEntry("income")],
     ["−", "記花費", "每日支出與補登", () => prepEntry("expense")],
     ["◎", "存錢", "把錢放進目標池", () => prepEntry("save")],
     ["☷", "看流水", "查餘額變化", () => switchView("Records")],
@@ -301,15 +355,22 @@ function renderFamily() {
   }
   els.childForm.hidden = false;
   $(".backup-row").hidden = false;
-  els.familyTools.innerHTML = state.children.map((child) => `
-    <div class="child-row">
-      <div>
-        <strong>${escapeHtml(child.name)}</strong>
-        <p>餘額 ${money(getBalance(child.id))}，共 ${state.records.filter((record) => record.childId === child.id).length} 筆</p>
-      </div>
-      <button class="secondary-action" type="button" data-login-child="${child.id}">查看</button>
+  els.familyTools.innerHTML = `
+    <div class="sync-card">
+      <strong>${cloud.enabled ? "雲端同步已開啟" : "目前是本機模式"}</strong>
+      <p>${cloud.enabled ? "爸媽或小孩在不同手機編修，大家會同步看到。" : "填好 firebase-config.js 後，重新整理即可開啟多人同步。"}</p>
+      ${cloud.error ? `<small>${escapeHtml(cloud.error)}</small>` : ""}
     </div>
-  `).join("");
+    ${state.children.map((child) => `
+      <div class="child-row">
+        <div>
+          <strong>${escapeHtml(child.name)}</strong>
+          <p>餘額 ${money(getBalance(child.id))}，共 ${state.records.filter((record) => record.childId === child.id).length} 筆</p>
+        </div>
+        <button class="secondary-action" type="button" data-login-child="${child.id}">查看</button>
+      </div>
+    `).join("")}
+  `;
   $$("[data-login-child]").forEach((button) => {
     button.addEventListener("click", () => {
       session.childId = button.dataset.loginChild;
@@ -324,11 +385,10 @@ function renderSelectors() {
   els.loginChild.innerHTML = childOptions;
   els.entryChild.innerHTML = childOptions;
   const filterOptions = `<option value="all">全部孩子</option>${childOptions}`;
+  const previousFilter = els.filterChild.value || "all";
   els.filterChild.innerHTML = filterOptions;
-  if (session?.childId) {
-    els.entryChild.value = session.childId;
-    els.filterChild.value = session.role === "child" ? session.childId : "all";
-  }
+  els.filterChild.value = session?.role === "child" ? session.childId : previousFilter;
+  if (session?.childId) els.entryChild.value = session.childId;
 }
 
 function renderLoginChildren() {
@@ -397,7 +457,7 @@ function deleteEditedRecord() {
   const id = els.editForm.id.value;
   const record = state.records.find((item) => item.id === id);
   if (!record) return;
-  state.records = state.records.filter((record) => record.id !== id);
+  state.records = state.records.filter((item) => item.id !== id);
   if (getBalance(record.childId) < 0) {
     state.records.push(record);
     return toast("刪除後餘額會不足，請先補充零用金。");
@@ -509,16 +569,29 @@ function makeRecord({ childId, actor, type, amount, category, date, note }) {
   };
 }
 
-function loadState() {
+function loadLocalState() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY));
+    return normalizeState(JSON.parse(localStorage.getItem(STORAGE_KEY) || localStorage.getItem("allowance-pool-v1")));
   } catch {
     return null;
   }
 }
 
+function saveLocalState(nextState) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+}
+
 function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (!state || applyingRemote) return;
+  state.updatedAt = nowIso();
+  saveLocalState(state);
+  if (cloud.enabled && cloud.save) {
+    cloud.save(state).catch((error) => {
+      cloud.error = error.message || "雲端寫入失敗";
+      render();
+      toast("雲端寫入失敗，資料已先留在本機。");
+    });
+  }
 }
 
 function exportJson() {
@@ -531,8 +604,8 @@ function importJson(event) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const imported = JSON.parse(reader.result);
-      if (!imported.familyName || !Array.isArray(imported.children) || !Array.isArray(imported.records)) {
+      const imported = normalizeState(JSON.parse(reader.result));
+      if (!imported?.familyName || !Array.isArray(imported.children) || !Array.isArray(imported.records)) {
         throw new Error("bad shape");
       }
       state = imported;
@@ -540,7 +613,7 @@ function importJson(event) {
       session = null;
       showLogin();
       render();
-      toast("備份已匯入，請重新登入。");
+      toast(cloud.enabled ? "備份已匯入並同步到雲端。" : "備份已匯入，請重新登入。");
     } catch {
       toast("備份檔格式不正確。");
     }
@@ -564,6 +637,22 @@ function exportCsv() {
   download(`allowance-records-${today()}.csv`, "\ufeff" + csv, "text/csv;charset=utf-8");
 }
 
+function sanitizeForCloud(nextState) {
+  return JSON.parse(JSON.stringify(nextState));
+}
+
+function normalizeState(value) {
+  if (!value) return null;
+  return {
+    familyName: value.familyName || "",
+    parentPin: value.parentPin || "",
+    children: Array.isArray(value.children) ? value.children : [],
+    records: Array.isArray(value.records) ? value.records : [],
+    createdAt: value.createdAt || nowIso(),
+    updatedAt: value.updatedAt || nowIso(),
+  };
+}
+
 function download(filename, content, type) {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -584,21 +673,27 @@ function toast(message) {
   els.toast.textContent = message;
   els.toast.classList.add("show");
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => els.toast.classList.remove("show"), 2200);
+  toast.timer = setTimeout(() => els.toast.classList.remove("show"), 2400);
 }
 
-function welcomeSummary() {
+function cloudLabel() {
+  if (cloud.enabled) return "雲端同步中";
+  if (cloud.error) return "本機模式";
+  return "本機模式";
+}
+
+function welcomeSummary(label) {
   return `
     <div class="hero-card">
       <div>
-        <p class="eyebrow">手機家庭帳本</p>
+        <p class="eyebrow">${escapeHtml(label || "手機家庭帳本")}</p>
         <div class="balance">NT$0</div>
         <span class="child-pill">先建立家庭帳本</span>
       </div>
       <div class="stat-strip">
         <div class="stat"><small>爸媽</small><strong>發放</strong></div>
         <div class="stat"><small>小孩</small><strong>記帳</strong></div>
-        <div class="stat"><small>忘記</small><strong>補登</strong></div>
+        <div class="stat"><small>雲端</small><strong>同步</strong></div>
       </div>
     </div>
   `;
