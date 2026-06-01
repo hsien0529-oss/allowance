@@ -27,8 +27,8 @@ node dev-server.js
 1. 到 Firebase Console 建立專案。
 2. 建立 Web App，複製 Firebase config。
 3. 啟用 Firestore Database。
-4. 把 config 填進 `firebase-config.js`。
-5. Commit 並推到 GitHub。
+4. 本機測試時可把 config 暫時填進 `firebase-config.js`。
+5. GitHub Pages 部署請把 config 填到 GitHub Secrets，不要把真實 key commit 到 repo。
 
 `firebase-config.js` 範例：
 
@@ -65,6 +65,17 @@ service cloud.firestore {
 此 repo 已包含 `.github/workflows/pages.yml`。推到 `main` 後，GitHub Actions 會部署靜態網站。
 
 若第一次部署沒有跑起來，到 GitHub repo 的 Settings → Pages，把 Source 設為 GitHub Actions。
+
+到 GitHub repo 的 Settings → Secrets and variables → Actions → New repository secret，新增以下 Secrets：
+
+- `FIREBASE_API_KEY`
+- `FIREBASE_AUTH_DOMAIN`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_STORAGE_BUCKET`
+- `FIREBASE_MESSAGING_SENDER_ID`
+- `FIREBASE_APP_ID`
+
+GitHub Actions 會在部署時產生 `firebase-config.js`，因此 repo 內的 `firebase-config.js` 只保留 placeholder。
 
 ## 手機使用
 
