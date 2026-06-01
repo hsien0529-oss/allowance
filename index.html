@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d5c63" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="零用金池" />
+    <title>零用金池</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">家庭帳本</p>
+          <h1>零用金池</h1>
+        </div>
+        <button class="icon-button" id="themeToggle" type="button" aria-label="切換深色模式" title="切換深色模式">
+          <span aria-hidden="true">◐</span>
+        </button>
+      </header>
+
+      <main>
+        <section class="hero-panel" id="summaryPanel" aria-live="polite"></section>
+
+        <section class="setup-panel" id="setupPanel" hidden>
+          <div class="section-heading">
+            <p class="eyebrow">第一次使用</p>
+            <h2>建立家庭零用金池</h2>
+          </div>
+          <form id="setupForm" class="stacked-form">
+            <label>
+              家庭名稱
+              <input name="familyName" maxlength="24" placeholder="例如：林家小金庫" required />
+            </label>
+            <label>
+              家長密碼
+              <input name="parentPin" inputmode="numeric" maxlength="8" placeholder="4 到 8 位數" required />
+            </label>
+            <label>
+              小孩名稱
+              <input name="childName" maxlength="16" placeholder="例如：小宇" required />
+            </label>
+            <label>
+              小孩密碼
+              <input name="childPin" inputmode="numeric" maxlength="8" placeholder="4 到 8 位數" required />
+            </label>
+            <label>
+              起始零用金
+              <input name="initialBalance" inputmode="decimal" type="number" min="0" step="1" value="0" required />
+            </label>
+            <button class="primary-action" type="submit">開始管理</button>
+          </form>
+        </section>
+
+        <section class="login-panel" id="loginPanel" hidden>
+          <div class="role-switch" role="tablist" aria-label="登入身分">
+            <button class="role-button active" data-role="parent" type="button">爸媽</button>
+            <button class="role-button" data-role="child" type="button">小孩</button>
+          </div>
+          <form id="loginForm" class="stacked-form compact">
+            <label>
+              選擇孩子
+              <select name="childId" id="loginChild"></select>
+            </label>
+            <label>
+              密碼
+              <input name="pin" inputmode="numeric" maxlength="8" placeholder="輸入密碼" required />
+            </label>
+            <button class="primary-action" type="submit">登入</button>
+          </form>
+        </section>
+
+        <section class="content-view active" id="viewHome">
+          <div class="quick-grid" id="quickActions"></div>
+          <div class="section-heading">
+            <h2>近期紀錄</h2>
+            <button class="text-button" id="showAllRecords" type="button">查看全部</button>
+          </div>
+          <div class="record-list" id="recentRecords"></div>
+        </section>
+
+        <section class="content-view" id="viewEntry">
+          <div class="section-heading">
+            <h2 id="entryTitle">新增紀錄</h2>
+            <p id="entryHint">今天花了什麼，或補登之前忘記的帳。</p>
+          </div>
+          <form id="entryForm" class="stacked-form">
+            <label id="entryChildWrap">
+              孩子
+              <select name="childId" id="entryChild"></select>
+            </label>
+            <div class="segmented" role="group" aria-label="紀錄類型">
+              <label><input type="radio" name="type" value="expense" checked />花費</label>
+              <label><input type="radio" name="type" value="income" />收入</label>
+              <label><input type="radio" name="type" value="save" />存起來</label>
+              <label id="adjustTypeOption"><input type="radio" name="type" value="adjust" />調整</label>
+            </div>
+            <label>
+              金額
+              <input name="amount" type="number" inputmode="decimal" min="1" step="1" placeholder="例如：50" required />
+            </label>
+            <label>
+              分類
+              <select name="category" id="categorySelect"></select>
+            </label>
+            <label>
+              日期
+              <input name="date" type="date" required />
+            </label>
+            <label>
+              備註
+              <input name="note" maxlength="40" placeholder="例如：早餐、幫忙洗碗獎勵" />
+            </label>
+            <button class="primary-action" type="submit">儲存紀錄</button>
+          </form>
+        </section>
+
+        <section class="content-view" id="viewRecords">
+          <div class="section-heading">
+            <h2>流水帳</h2>
+            <button class="text-button" id="exportCsv" type="button">CSV</button>
+          </div>
+          <div class="filter-row">
+            <select id="filterChild" aria-label="篩選孩子"></select>
+            <select id="filterType" aria-label="篩選類型">
+              <option value="all">全部類型</option>
+              <option value="expense">花費</option>
+              <option value="income">收入</option>
+              <option value="save">存起來</option>
+              <option value="adjust">調整</option>
+            </select>
+          </div>
+          <div class="record-list" id="recordList"></div>
+        </section>
+
+        <section class="content-view" id="viewFamily">
+          <div class="section-heading">
+            <h2>家庭設定</h2>
+            <button class="text-button" id="logoutButton" type="button">登出</button>
+          </div>
+          <div class="family-tools" id="familyTools"></div>
+          <form id="childForm" class="stacked-form">
+            <h3>新增孩子</h3>
+            <label>
+              名稱
+              <input name="name" maxlength="16" placeholder="孩子名稱" required />
+            </label>
+            <label>
+              小孩密碼
+              <input name="pin" inputmode="numeric" maxlength="8" placeholder="4 到 8 位數" required />
+            </label>
+            <label>
+              起始金額
+              <input name="balance" type="number" inputmode="decimal" min="0" step="1" value="0" required />
+            </label>
+            <button class="secondary-action" type="submit">新增孩子</button>
+          </form>
+          <div class="backup-row">
+            <button class="secondary-action" id="exportJson" type="button">匯出備份</button>
+            <label class="file-action">
+              匯入備份
+              <input id="importJson" type="file" accept="application/json" />
+            </label>
+          </div>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="主要導覽">
+        <button class="nav-button active" data-view="Home" type="button"><span>⌂</span>首頁</button>
+        <button class="nav-button" data-view="Entry" type="button"><span>＋</span>記帳</button>
+        <button class="nav-button" data-view="Records" type="button"><span>☷</span>流水</button>
+        <button class="nav-button" data-view="Family" type="button"><span>⚙</span>設定</button>
+      </nav>
+    </div>
+
+    <dialog id="editDialog">
+      <form id="editForm" class="stacked-form" method="dialog">
+        <h2>修改紀錄</h2>
+        <input name="id" type="hidden" />
+        <label>
+          金額
+          <input name="amount" type="number" min="1" step="1" required />
+        </label>
+        <label>
+          日期
+          <input name="date" type="date" required />
+        </label>
+        <label>
+          備註
+          <input name="note" maxlength="40" />
+        </label>
+        <div class="dialog-actions">
+          <button class="danger-action" id="deleteRecord" type="button">刪除</button>
+          <button class="secondary-action" value="cancel" type="submit">取消</button>
+          <button class="primary-action" id="saveEdit" value="save" type="button">儲存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

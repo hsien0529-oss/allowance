@@ -1,0 +1,17 @@
+{
+  "name": "零用金池",
+  "short_name": "零用金池",
+  "description": "爸媽發放零用金，小孩每日記帳與補登的家庭帳本。",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f4f7f5",
+  "theme_color": "#0d5c63",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
