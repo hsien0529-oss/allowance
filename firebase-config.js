@@ -1,8 +1,8 @@
 window.ALLOWANCE_FIREBASE_CONFIG = {
-  apiKey: "PASTE_FIREBASE_API_KEY",
-  authDomain: "PASTE_PROJECT_ID.firebaseapp.com",
-  projectId: "PASTE_PROJECT_ID",
-  storageBucket: "PASTE_PROJECT_ID.appspot.com",
-  messagingSenderId: "PASTE_MESSAGING_SENDER_ID",
-  appId: "PASTE_APP_ID"
+  apiKey: "AIzaSyDIkQgy4GNPS6XjEhuHI1gCnd3NftzpLGo",
+  authDomain: "allowance-3a31a.firebaseapp.com",
+  projectId: "allowance-3a31a",
+  storageBucket: "allowance-3a31a.firebasestorage.app",
+  messagingSenderId: "346343289202",
+  appId: "1:346343289202:web:ca23805e4606cf516aedeb"
 };
