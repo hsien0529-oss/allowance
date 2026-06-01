@@ -146,7 +146,7 @@ async function setupCloudSync() {
   }
 }
 
-function setupFamily(event) {
+async function setupFamily(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const parentPin = cleanPin(form.get("parentPin"));
@@ -174,7 +174,8 @@ function setupFamily(event) {
       note: "建立零用金池",
     }));
   }
-  persist();
+  const saved = await persist();
+  if (!saved) return;
   session = { role: "parent", childId };
   showApp();
   render();
@@ -206,7 +207,7 @@ function logout() {
   render();
 }
 
-function saveEntry(event) {
+async function saveEntry(event) {
   event.preventDefault();
   if (!session) return;
   const form = new FormData(event.currentTarget);
@@ -218,10 +219,10 @@ function saveEntry(event) {
 
   const balance = getBalance(childId);
   if (type === "expense" && balance - amount < 0) {
-    return toast("零用金池餘額不足，先請爸媽補充或修正。");
+    return toast(`零用金池餘額不足，目前只有 ${money(balance)}。`);
   }
 
-  state.records.push(makeRecord({
+  const record = makeRecord({
     childId,
     actor: session.role,
     type,
@@ -229,15 +230,21 @@ function saveEntry(event) {
     category: form.get("category"),
     date: form.get("date"),
     note: form.get("note").trim(),
-  }));
-  persist();
+  });
+  state.records.push(record);
+  const saved = await persist();
+  if (!saved) {
+    state.records = state.records.filter((item) => item.id !== record.id);
+    render();
+    return;
+  }
   event.currentTarget.reset();
   setDefaultEntryValues();
   render();
   toast(isBackdate(form.get("date")) ? "補登完成，已同步到正確日期。" : "今天的紀錄已儲存。");
 }
 
-function addChild(event) {
+async function addChild(event) {
   event.preventDefault();
   if (session?.role !== "parent") return toast("只有爸媽可以新增孩子。");
   const form = new FormData(event.currentTarget);
@@ -245,10 +252,12 @@ function addChild(event) {
   if (!validPin(pin)) return toast("密碼請使用 4 到 8 位數字。");
 
   const childId = crypto.randomUUID();
-  state.children.push({ id: childId, name: form.get("name").trim(), pin, createdAt: nowIso() });
+  const child = { id: childId, name: form.get("name").trim(), pin, createdAt: nowIso() };
+  const addedRecords = [];
+  state.children.push(child);
   const balance = Number(form.get("balance")) || 0;
   if (balance > 0) {
-    state.records.push(makeRecord({
+    addedRecords.push(makeRecord({
       childId,
       actor: "parent",
       type: "adjust",
@@ -257,8 +266,15 @@ function addChild(event) {
       date: today(),
       note: "新增孩子",
     }));
+    state.records.push(...addedRecords);
   }
-  persist();
+  const saved = await persist();
+  if (!saved) {
+    state.children = state.children.filter((item) => item.id !== childId);
+    state.records = state.records.filter((record) => !addedRecords.some((item) => item.id === record.id));
+    render();
+    return;
+  }
   event.currentTarget.reset();
   render();
   toast("孩子已加入零用金池。");
@@ -434,7 +450,7 @@ function openEdit(id) {
   els.editDialog.showModal();
 }
 
-function saveEdit() {
+async function saveEdit() {
   const id = els.editForm.id.value;
   const record = state.records.find((item) => item.id === id);
   if (!record) return;
@@ -447,13 +463,18 @@ function saveEdit() {
     return toast("修改後餘額會不足，請先補充零用金。");
   }
   record.updatedAt = nowIso();
-  persist();
+  const saved = await persist();
+  if (!saved) {
+    Object.assign(record, previous);
+    render();
+    return;
+  }
   els.editDialog.close();
   render();
   toast("紀錄已更新。");
 }
 
-function deleteEditedRecord() {
+async function deleteEditedRecord() {
   const id = els.editForm.id.value;
   const record = state.records.find((item) => item.id === id);
   if (!record) return;
@@ -462,7 +483,12 @@ function deleteEditedRecord() {
     state.records.push(record);
     return toast("刪除後餘額會不足，請先補充零用金。");
   }
-  persist();
+  const saved = await persist();
+  if (!saved) {
+    state.records.push(record);
+    render();
+    return;
+  }
   els.editDialog.close();
   render();
   toast("紀錄已刪除。");
@@ -581,17 +607,22 @@ function saveLocalState(nextState) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
 }
 
-function persist() {
-  if (!state || applyingRemote) return;
+async function persist() {
+  if (!state || applyingRemote) return true;
   state.updatedAt = nowIso();
   saveLocalState(state);
   if (cloud.enabled && cloud.save) {
-    cloud.save(state).catch((error) => {
+    try {
+      await cloud.save(state);
+      cloud.error = "";
+    } catch (error) {
       cloud.error = error.message || "雲端寫入失敗";
       render();
-      toast("雲端寫入失敗，資料已先留在本機。");
-    });
+      toast(`雲端寫入失敗：${cloud.error}`);
+      return false;
+    }
   }
+  return true;
 }
 
 function exportJson() {
@@ -602,14 +633,15 @@ function importJson(event) {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
       const imported = normalizeState(JSON.parse(reader.result));
       if (!imported?.familyName || !Array.isArray(imported.children) || !Array.isArray(imported.records)) {
         throw new Error("bad shape");
       }
       state = imported;
-      persist();
+      const saved = await persist();
+      if (!saved) return;
       session = null;
       showLogin();
       render();
